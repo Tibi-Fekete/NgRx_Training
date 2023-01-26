@@ -1,31 +1,37 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 
-import { Subscription } from 'rxjs';
+import {Observable, Subscription} from 'rxjs';
 
 import { Product } from '../product';
 import { ProductService } from '../product.service';
 import { GenericValidator } from '../../shared/generic-validator';
 import { NumberValidators } from '../../shared/number.validator';
+import {Store} from "@ngrx/store";
+import {getCurrentProduct, getError, State} from "../state";
+import {tap} from "rxjs/operators";
+import {ProductPageActions} from "../state/actions";
+import {getErrorMessage} from "codelyzer/templateAccessibilityElementsContentRule";
 
 @Component({
   selector: 'pm-product-edit',
   templateUrl: './product-edit.component.html'
 })
-export class ProductEditComponent implements OnInit, OnDestroy {
+export class ProductEditComponent implements OnInit {
   pageTitle = 'Product Edit';
-  errorMessage = '';
+  errorMessage$: Observable<string>;
   productForm: FormGroup;
 
-  product: Product | null;
-  sub: Subscription;
+  product$: Observable<Product | null>;
+  // sub: Subscription;
 
   // Use with the generic validation message class
   displayMessage: { [key: string]: string } = {};
   private validationMessages: { [key: string]: { [key: string]: string } };
   private genericValidator: GenericValidator;
 
-  constructor(private fb: FormBuilder, private productService: ProductService) {
+  // product state, ami extendálva lett - ../state-ből
+  constructor(private store: Store<State>, private fb: FormBuilder, private productService: ProductService) {
 
     // Defines all of the validation messages for the form.
     // These could instead be retrieved from a file or database.
@@ -58,9 +64,15 @@ export class ProductEditComponent implements OnInit, OnDestroy {
     });
 
     // Watch for changes to the currently selected product
-    this.sub = this.productService.selectedProductChanges$.subscribe(
-      currentProduct => this.displayProduct(currentProduct)
+    // this.sub = this.productService.selectedProductChanges$.subscribe(
+    //   currentProduct => this.displayProduct(currentProduct)
+    // );
+    this.product$ = this.store.select(getCurrentProduct).pipe(
+      tap((currenProduct) => {
+        this.displayProduct(currenProduct);
+      })
     );
+    this.errorMessage$ = this.store.select(getError);
 
     // Watch for value changes for validation
     this.productForm.valueChanges.subscribe(
@@ -68,9 +80,9 @@ export class ProductEditComponent implements OnInit, OnDestroy {
     );
   }
 
-  ngOnDestroy(): void {
-    this.sub.unsubscribe();
-  }
+  // ngOnDestroy(): void {
+  //   this.sub.unsubscribe();
+  // }
 
   // Also validate on blur
   // Helpful if the user tabs through required fields
@@ -79,9 +91,6 @@ export class ProductEditComponent implements OnInit, OnDestroy {
   }
 
   displayProduct(product: Product | null): void {
-    // Set the local product property
-    this.product = product;
-
     if (product) {
       // Reset the form back to pristine
       this.productForm.reset();
@@ -112,14 +121,11 @@ export class ProductEditComponent implements OnInit, OnDestroy {
   deleteProduct(product: Product): void {
     if (product && product.id) {
       if (confirm(`Really delete the product: ${product.productName}?`)) {
-        this.productService.deleteProduct(product.id).subscribe({
-          next: () => this.productService.changeSelectedProduct(null),
-          error: err => this.errorMessage = err
-        });
+        this.store.dispatch(ProductPageActions.deleteProduct({productId: product.id}));
       }
     } else {
       // No need to delete, it was never saved
-      this.productService.changeSelectedProduct(null);
+      this.store.dispatch(ProductPageActions.clearCurrentProduct());
     }
   }
 
@@ -132,15 +138,9 @@ export class ProductEditComponent implements OnInit, OnDestroy {
         const product = { ...originalProduct, ...this.productForm.value };
 
         if (product.id === 0) {
-          this.productService.createProduct(product).subscribe({
-            next: p => this.productService.changeSelectedProduct(p),
-            error: err => this.errorMessage = err
-          });
+          this.store.dispatch(ProductPageActions.createProduct({product}));
         } else {
-          this.productService.updateProduct(product).subscribe({
-            next: p => this.productService.changeSelectedProduct(p),
-            error: err => this.errorMessage = err
-          });
+          this.store.dispatch(ProductPageActions.updateProduct({product}));
         }
       }
     }
